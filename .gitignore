@@ -67,5 +67,4 @@ vcpkg_installed/
 Testing/
 .cache/
 .clangd
-test_totp.cpp
 test_totp
