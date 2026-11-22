@@ -29,7 +29,7 @@ public:
     // Experiments can pass a fake time to simulate clock offsets.
     VerifyResult verify(const std::string& code, uint64_t serverTime);
 
-    void setWindow(int window) { window_ = window; }
+    void setWindow(int window);  // throws std::invalid_argument if window < 0
     int  failures() const { return failures_; }
     bool locked() const { return locked_; }
     void reset();  // clears reuse history, failure count, and lock (for running experiments back to back)

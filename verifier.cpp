@@ -2,18 +2,19 @@
 #include "totp.h"
 
 #include <cctype>
-
-// ASSUMPTION: Person 1's totp.h provides
-//     std::string generate_totp(const std::string& secret, uint64_t unixTime,
-//                               int stepSeconds, int digits);
-// returning a zero-padded code like "042913".
-// If their function has a different name or arguments, only the one line
-// marked "GENERATOR CALL" below needs to change.
+#include <stdexcept>
 
 TotpVerifier::TotpVerifier(const std::string& secret, int window, int maxFailures,
                            int stepSeconds, int digits)
-    : secret_(secret), window_(window), maxFailures_(maxFailures),
-      stepSeconds_(stepSeconds), digits_(digits) {}
+    : secret_(secret), window_(0), maxFailures_(maxFailures),
+      stepSeconds_(stepSeconds), digits_(digits) {
+    setWindow(window);
+}
+
+void TotpVerifier::setWindow(int window) {
+    if (window < 0) throw std::invalid_argument("Window must be non-negative");
+    window_ = window;
+}
 
 void TotpVerifier::reset() {
     hasUsedStep_ = false;
