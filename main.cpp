@@ -2,19 +2,67 @@
 #include "totp.h"
 #include "verifier.h"
 
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
-#include <limits>
 #include <string>
 
 // Get the current Unix time in seconds.
 uint64_t getCurrentTime() {
     auto now = std::chrono::system_clock::now();
+
     auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
         now.time_since_epoch()
     );
+
     return static_cast<uint64_t>(seconds.count());
+}
+
+// Read a complete integer line.
+// Reject letters and mixed input such as "12abc".
+bool readInteger(const std::string& prompt, int64_t& value) {
+    std::string input;
+
+    std::cout << prompt;
+
+    if (!std::getline(std::cin, input)) {
+        return false;
+    }
+
+    // Remove whitespace around the input.
+    size_t start = input.find_first_not_of(" \t\r\n");
+
+    if (start == std::string::npos) {
+        return false;
+    }
+
+    size_t end = input.find_last_not_of(" \t\r\n");
+
+    std::string number = input.substr(start, end - start + 1);
+
+    const char* first = number.data();
+    const char* last = first + number.size();
+
+    // Allow a leading plus sign.
+    if (*first == '+') {
+        ++first;
+
+        if (first == last) {
+            return false;
+        }
+    }
+
+    int64_t parsed;
+
+    auto result = std::from_chars(first, last, parsed);
+
+    if (result.ec != std::errc{} || result.ptr != last) {
+        return false;
+    }
+
+    value = parsed;
+    return true;
 }
 
 int main() {
@@ -22,41 +70,55 @@ int main() {
 
     const int stepSeconds = 30;
     const int digits = 6;
+    const int maxAttempts = 5;
 
     int window = 0;
     int64_t clockOffset = 0;
 
     // Allow up to 5 consecutive incorrect attempts.
-    TotpVerifier verifier(secret, window, 5, stepSeconds, digits);
-
-    int choice;
+    TotpVerifier verifier(
+        secret, window, maxAttempts, stepSeconds, digits
+    );
 
     while (true) {
         std::cout << "\n====================================\n";
         std::cout << "       TOTP AUTHENTICATION DEMO\n";
         std::cout << "====================================\n";
-        std::cout << "Current acceptance window: " << window << "\n";
-        std::cout << "Device clock offset: " << clockOffset << " seconds\n\n";
+
+        std::cout << "Current acceptance window: "
+                  << window << "\n";
+
+        std::cout << "Device clock offset: "
+                  << clockOffset << " seconds\n\n";
 
         std::cout << "1. Generate TOTP code\n";
         std::cout << "2. Verify TOTP code\n";
         std::cout << "3. Change acceptance window\n";
         std::cout << "4. Set device clock offset\n";
-        std::cout << "5. Exit\n";
+        std::cout << "5. Reset settings\n";
+        std::cout << "6. Exit\n";
 
-        std::cout << "\nChoose an option: ";
+        int64_t choice;
 
-        if (!(std::cin >> choice)) {
-            std::cout << "Invalid input. Exiting.\n";
-            break;
+        if (!readInteger("\nChoose an option: ", choice)) {
+            if (std::cin.eof()) {
+                std::cout << "\nInput closed. Exiting TOTP demo.\n";
+                break;
+            }
+
+            std::cout << "Invalid input. "
+                      << "Please enter a menu number (1-6).\n";
+            continue;
         }
 
-        if (choice == 5) {
+        // Exit.
+        if (choice == 6) {
             std::cout << "Exiting TOTP demo.\n";
             break;
         }
 
-        if (choice == 1) {
+        // Generate TOTP code.
+        else if (choice == 1) {
             uint64_t serverTime = getCurrentTime();
 
             int64_t deviceTime =
@@ -74,16 +136,23 @@ int main() {
                 digits
             );
 
-            std::cout << "\nGenerated TOTP code: " << code << "\n";
+            std::cout << "\nGenerated TOTP code: "
+                      << code << "\n";
+
             std::cout << "Device clock offset: "
                       << clockOffset << " seconds\n";
         }
 
+        // Verify TOTP code.
         else if (choice == 2) {
             std::string code;
 
             std::cout << "Enter TOTP code: ";
-            std::cin >> code;
+
+            if (!std::getline(std::cin, code)) {
+                std::cout << "\nInput closed. Exiting TOTP demo.\n";
+                break;
+            }
 
             uint64_t serverTime = getCurrentTime();
 
@@ -93,13 +162,16 @@ int main() {
 
             if (result.accepted) {
                 std::cout << "ACCEPTED\n";
+
                 std::cout << "Matched offset: "
                           << result.matchedOffset << "\n";
             } else {
                 std::cout << "REJECTED\n";
             }
 
-            std::cout << "Reason: " << result.reason << "\n";
+            std::cout << "Reason: "
+                      << result.reason << "\n";
+
             std::cout << "Failed attempts: "
                       << verifier.failures() << "\n";
 
@@ -108,31 +180,79 @@ int main() {
             }
         }
 
+        // Change acceptance window.
         else if (choice == 3) {
-            std::cout << "Enter acceptance window (0 or 1): ";
+            int64_t newWindow;
 
-            int newWindow;
-            std::cin >> newWindow;
+            if (!readInteger(
+                    "Enter acceptance window (0 or 1): ",
+                    newWindow
+                )) {
+
+                if (std::cin.eof()) {
+                    std::cout << "\nInput closed. Exiting TOTP demo.\n";
+                    break;
+                }
+
+                std::cout << "Invalid input. Enter 0 or 1.\n";
+                continue;
+            }
 
             if (newWindow == 0 || newWindow == 1) {
-                window = newWindow;
+                window = static_cast<int>(newWindow);
+
                 verifier.setWindow(window);
+
                 std::cout << "Acceptance window updated.\n";
             } else {
                 std::cout << "Invalid window. Choose 0 or 1.\n";
             }
         }
 
+        // Set device clock offset.
         else if (choice == 4) {
-            std::cout << "Enter device clock offset in seconds: ";
+            int64_t newOffset;
 
-            std::cin >> clockOffset;
+            if (!readInteger(
+                    "Enter device clock offset in seconds: ",
+                    newOffset
+                )) {
+
+                if (std::cin.eof()) {
+                    std::cout << "\nInput closed. Exiting TOTP demo.\n";
+                    break;
+                }
+
+                std::cout << "Invalid input. "
+                          << "Enter a whole number of seconds.\n";
+                continue;
+            }
+
+            clockOffset = newOffset;
 
             std::cout << "Clock offset updated.\n";
         }
 
+        // Reset settings.
+        else if (choice == 5) {
+            window = 0;
+            clockOffset = 0;
+
+            // Recreate the verifier to reset failed attempts.
+            verifier = TotpVerifier(
+                secret, window, maxAttempts, stepSeconds, digits
+            );
+
+            std::cout << "Settings reset successfully.\n";
+            std::cout << "Acceptance window: 0\n";
+            std::cout << "Device clock offset: 0 seconds\n";
+            std::cout << "Failed attempts: 0\n";
+        }
+
+        // Handle unsupported menu choices.
         else {
-            std::cout << "Invalid option. Try again.\n";
+            std::cout << "Invalid option. "
+                      << "Choose a number from 1 to 6.\n";
         }
     }
 
